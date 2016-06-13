@@ -20,20 +20,23 @@ class Connection(object):
     """Manages TCP communication to and from QServer"""
     description_format = "Connection<host={}, port={}>"
 
-    def __init__(self, host="localhsot", port=1234, socket_timeout=None,
+    def __init__(self, host="localhost", port=1234, socket_timeout=None,
                  socket_connect_timeout=None, socket_keepalive=False,
-                 retry_on_time=False, queue_class=Queue, queue_timeout=5,
-                 queue_max_size=100, socket_read_size=65536):
+                 socket_keepalive_options=None, retry_on_time=False,
+                 queue_class=Queue, queue_timeout=5, queue_max_size=100,
+                 socket_read_size=65536):
         self.pid = os.getpid()
         self.host = host
         self.port = port
         self.socket_timeout = socket_timeout
         self.socket_connect_timeout = socket_connect_timeout
         self.socket_keepalive = socket_keepalive
+        self.socket_keepalive_options = socket_keepalive_options or {}
         self.retry_on_time = retry_on_time
         self.queue_class = queue_class
         self.queue_max_size = queue_max_size
         self.queue_timeout = queue_timeout
+        self.socket_read_size = socket_read_size
         self._sock = None
         self._connect_callback = []
 
@@ -59,7 +62,7 @@ class Connection(object):
         except socket.timeout:
             raise TimeoutError("Timeout connecting to server")
         except socket.error:
-            e = sys.exc_info[0]
+            e = sys.exc_info()[1]
             raise ConnectionError(self._error_message(e))
 
         self._sock = sock
@@ -117,14 +120,23 @@ class Connection(object):
             pass
         self._sock = None
 
-    def send(self, data):
+    def send(self, data, ack=True):
         if self._sock is None:
-            raise ConnectionError("Socket has not created!!")
+            self.connect()
+            # raise ConnectionError("Socket has not created!!")
+        buffer = []
         try:
             self._sock.sendall(data)
-            received = self._sock.recv(self.socket_read_size)
-            self._set_result(received)
+            while True:
+                received = self._sock.recv(self.socket_read_size)
+                if received:
+                    buffer.append(received)
+                else:
+                    break
+            if ack:
+                self._set_result(received)
         except Exception:
+            self.disconnect()
             raise
 
     def _set_result(self, ret):
@@ -135,7 +147,7 @@ class Connection(object):
             self.queue.put_nowait(ret)
         else:
             try:
-                self.queue.put(timeout=self.queue_timeout)
+                self.queue.put(ret, timeout=self.queue_timeout)
             except Full:
                 raise SocketRecvQueueFullError(
                     "Socket result has too many results hasn't been consume."
