@@ -1,11 +1,13 @@
 # -*- coding: utf-8 -*-
 
+import sys
+
 try:  # Python 3
     from queue import LifoQueue, Empty, Full
 except ImportError:
     from Queue import Empty, Full
     try:  # Python 2.6 - 2.7
-        from Queue import LifoQueue
+        from Queue import LifoQueue, Queue
     except ImportError:  # Python 2.5
         from Queue import Queue
 
@@ -24,3 +26,9 @@ except ImportError:
             def _get(self):
                 return self.queue.pop()
 
+if sys.version_info[0] < 3:
+    def iteritems(x):
+        return x.iteritems()
+else:
+    def iteritems(x):
+        return iter(x.items())
