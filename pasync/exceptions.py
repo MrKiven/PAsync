@@ -13,6 +13,10 @@ class ConnectionError(PAsyncError):
     pass
 
 
+class SocketQueueError(PAsyncError):
+    pass
+
+
 class SocketRecvQueueFullError(PAsyncError):
     pass
 

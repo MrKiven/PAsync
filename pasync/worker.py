@@ -3,19 +3,21 @@
 import socket
 import os
 import sys
+import threading
 
 from pasync._compat import Empty, Full, iteritems
 from pasync.q import LifoQueue, Queue
 from pasync.exceptions import (
     TimeoutError,
     ConnectionError,
+    SocketQueueError,
     SocketRecvQueueFullError,
     SocketRecvQueueEmptyError
 )
 
 
 class Connection(object):
-
+    """Manages TCP communication to and from QServer"""
     description_format = "Connection<host={}, port={}>"
 
     def __init__(self, host="localhsot", port=1234, socket_timeout=None,
@@ -126,6 +128,9 @@ class Connection(object):
             raise
 
     def _set_result(self, ret):
+        if not hasattr(self, "queue"):
+            raise SocketQueueError("Socket queue has not Initialized")
+
         if self.queue.qsize < self.queue_max_size:
             self.queue.put_nowait(ret)
         else:
@@ -144,3 +149,72 @@ class Connection(object):
             return self.queue.get(timeout=self.queue_timeout)
         except Empty:
             raise SocketRecvQueueEmptyError("No reslut.")
+
+
+class ConnectionPool(object):
+
+    def __init__(self, connection_class=Connection, max_connections=50,
+                 timeout=20, queue_class=LifoQueue, **connection_kwargs):
+        self.queue_class = queue_class
+        self.timeout = timeout
+        self.max_connections = max_connections
+        self.connection_kwargs = connection_kwargs
+
+    def reset(self):
+        self.pid = os.getpid()
+        self._check_lock = threading.Lock()
+
+        # Create and fill up a thread safe queue with ``None`` values.
+        self.pool = self.queue_class(self.max_connections)
+        while True:
+            try:
+                self.pool.put_nowait(None)
+            except Full:
+                break
+
+        self._connections = []
+
+    def _check_pid(self):
+        "Check if has changed process."
+        if self.pid != os.getpid():
+            with self._check_lock:
+                if self.pid == os.getpid():
+                    return
+                self.disconnect()
+                self.reset()
+
+    def make_connection(self):
+        "Make a fresh connection."
+        connection = self.connection_class(**self.connection_kwargs)
+        self._connections.append(connection)
+        return connection
+
+    def get_connection(self):
+        self._check_pid()
+
+        connection = None
+        try:
+            connection = self.pool.get(timeout=self.timeout)
+        except Empty:
+            raise ConnectionError("No connection available.")
+
+        if connection is None:
+            connection = self.make_connection()
+
+        return connection
+
+    def release(self, connection):
+        "Release the connection back to the pool."
+        self._check_pid()
+        if connection.pid != self.pid:
+            return
+
+        # Put the connetion back to the pool.
+        try:
+            self.pool.put_nowait(connection)
+        except Full:
+            pass
+
+    def disconnect(self):
+        for connection in self._connections:
+            connection.disconnect()
