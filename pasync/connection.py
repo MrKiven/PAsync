@@ -5,7 +5,9 @@ import os
 import sys
 import threading
 
-from pasync._compat import Empty, Full, iteritems
+from pasync._compat import (
+    Empty, Full, iteritems, BytesIO, recv
+)
 from pasync.q import LifoQueue, Queue
 from pasync.exceptions import (
     TimeoutError,
@@ -14,6 +16,99 @@ from pasync.exceptions import (
     SocketRecvQueueFullError,
     SocketRecvQueueEmptyError
 )
+
+SYM_STAR = b('*')
+SYM_DOLLAR = b('$')
+SYM_CRLF = b('\r\n')
+SYM_EMPTY = b('')
+
+SERVER_CLOSED_CONNECTION_ERROR = "Connection closed by server."
+
+
+class SocketBuffer(object):
+    def __init__(self, socket, socket_read_size):
+        self._sock = socket
+        self.socket_read_size = socket_read_size
+        self._buffer = BytesIO()
+        self.bytes_written = 0
+        self.bytes_read = 0
+
+    @property
+    def length(self):
+        return self.bytes_written - self.bytes_read
+
+    def _read_from_socket(self, length=None):
+        socket_read_size = self.socket_read_size
+        buf = self._buffer
+        buf.seek(self.bytes_written)
+        marker = 0
+
+        try:
+            while True:
+                data = recv(self._sock, socket_read_size)
+                if isinstance(data, bytes) and len(data) == 0:
+                    raise socket.error(SERVER_CLOSED_CONNECTION_ERROR)
+                buf.write(data)
+                data_length = len(data)
+                self.bytes_written += data_length
+                marker += data_length
+
+                if length is not None and length > marker:
+                    continue
+                break
+        except socket.timeout:
+            raise TimeoutError("Timeout reading from socket")
+        except socket.error:
+            e = sys.exc_info()[1]
+            raise ConnectionError("Error while reading from socket: %s" %
+                                  (e.args,))
+
+    def read(self, length):
+        length += 2
+
+        if length > self.length:
+            self._read_from_socket(length - self.length)
+
+        self._buffer.seek(self.bytes_read)
+        data = self._buffer.read(length)
+        self.bytes_read += len(data)
+
+        if self.bytes_read == self.bytes_written:
+            self.purge()
+
+        return data[:-2]
+
+    def readline(self):
+        buf = self._buffer
+        buf.seek(self.bytes_read)
+        data = buf.readline()
+
+        while not data.endswith(SYM_CRLF):
+            self._read_from_socket()
+            buf.seek(self.bytes_read)
+            data = buf.readline()
+
+        self.bytes_read += len(data)
+
+        if self.bytes_read == self.bytes_written:
+            self.purge()
+
+        return data[:-2]
+
+    def purge(self):
+        self._buffer.seek(0)
+        self._buffer.truncate()
+        self.bytes_written = 0
+        self.bytes_read = 0
+
+    def close(self):
+        try:
+            self.purge()
+            self._buffer.close()
+        except:
+            pass
+        self._buffer = None
+        self._sock = None
 
 
 class Connection(object):
