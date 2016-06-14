@@ -137,7 +137,7 @@ class Connection(object):
         if not hasattr(self, "queue"):
             raise SocketQueueError("Socket queue has not Initialized")
 
-        if self.queue.qsize < self.queue_max_size:
+        if self.queue.qsize() < self.queue_max_size:
             self.queue.put_nowait(ret)
         else:
             try:
