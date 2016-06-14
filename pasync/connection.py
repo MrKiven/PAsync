@@ -122,8 +122,7 @@ class Connection(object):
 
     def send(self, data, ack=True):
         if self._sock is None:
-            self.connect()
-            # raise ConnectionError("Socket has not created!!")
+            raise ConnectionError("Socket has not created!!")
         try:
             self._sock.sendall(data)
             received = self._sock.recv(self.socket_read_size)
