@@ -27,6 +27,12 @@ except ImportError:
                 return self.queue.pop()
 
 if sys.version_info[0] < 3:
+    try:
+        from cStringIO import StringIO as BytesIO
+    except ImportError:
+        from StringIO import StringIO as BytesIO
+    else:
+        from io import BytesIO
     def iteritems(x):
         return x.iteritems()
 else:
