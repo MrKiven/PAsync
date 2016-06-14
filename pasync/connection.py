@@ -161,10 +161,13 @@ class ConnectionPool(object):
 
     def __init__(self, connection_class=Connection, max_connections=50,
                  timeout=20, queue_class=LifoQueue, **connection_kwargs):
+        self.connection_class = connection_class
         self.queue_class = queue_class
         self.timeout = timeout
         self.max_connections = max_connections
         self.connection_kwargs = connection_kwargs
+
+        self.reset()
 
     def reset(self):
         self.pid = os.getpid()
