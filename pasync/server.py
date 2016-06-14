@@ -9,12 +9,17 @@ logger = logging.getLogger(__name__)
 class QHandler(StreamRequestHandler):
 
     def handle(self):
-        self.data = self.request.recv(1024)
-        self.wfile.write('OK')
-
-        addr = self.request.getpeername()
-        logger.info("Got Connection from: {}".format(addr))
-        # ack to cilent
+        while True:
+            self.data = self.request.recv(1024)
+            if not self.data:
+                break
+            addr = self.request.getpeername()
+            logger.info(
+                "Got Connection from: {} with data: {}".format(addr, self.data)
+            )
+            # ack to cilent
+            self.wfile.write('OK')
+        logger.info("Broken connect with: {}".format(self.client_address[0]))
 
 
 # Support multi threading

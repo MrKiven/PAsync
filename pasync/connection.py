@@ -124,15 +124,9 @@ class Connection(object):
         if self._sock is None:
             self.connect()
             # raise ConnectionError("Socket has not created!!")
-        buffer = []
         try:
             self._sock.sendall(data)
-            while True:
-                received = self._sock.recv(self.socket_read_size)
-                if received:
-                    buffer.append(received)
-                else:
-                    break
+            received = self._sock.recv(self.socket_read_size)
             if ack:
                 self._set_result(received)
         except Exception:
@@ -155,7 +149,7 @@ class Connection(object):
                 )
 
     def get_result(self, timeout=5):
-        if self.queue.qsize > 0:
+        if self.queue.qsize() > 0:
             return self.queue.get_nowait()
         try:
             return self.queue.get(timeout=self.queue_timeout)
