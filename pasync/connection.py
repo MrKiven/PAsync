@@ -25,6 +25,7 @@ from pasync.exceptions import (
     NoScriptError,
     ReadOnlyError
 )
+from pasync.utils import json_encode
 
 SYM_STAR = b('*')
 SYM_DOLLAR = b('$')
@@ -252,6 +253,8 @@ class Connection(object):
         self._parser = parser_class(socket_read_size)
         self._connect_callback = []
 
+        self.task_id = 0
+
         self._init_queue()
 
     def _init_queue(self):
@@ -342,10 +345,15 @@ class Connection(object):
         self._sock = None
 
     def send(self, data, ack=True):
+        task = {
+            'task_id': self.task_id,
+            'task_content': data
+        }
         if self._sock is None:
             raise ConnectionError("Socket has not created!!")
+        self.task_id += 1
         try:
-            self._sock.sendall(data)
+            self._sock.sendall(json_encode(task))
             received = self._sock.recv(self.socket_read_size)
             if ack:
                 self._set_result(received)

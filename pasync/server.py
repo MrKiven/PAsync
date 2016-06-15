@@ -3,22 +3,34 @@
 import logging
 from SocketServer import TCPServer, StreamRequestHandler, ThreadingMixIn
 
+from pasync.utils import json_decode, json_encode
+
 logger = logging.getLogger(__name__)
+
+ACK = {
+    'task_id': None,
+    'task_ack': True
+}
 
 
 class QHandler(StreamRequestHandler):
 
     def handle(self):
         while True:
-            self.data = self.request.recv(1024)
-            if not self.data:
+            task = json_decode(self.request.recv(1024))
+
+            if not task:
                 break
+
             addr = self.request.getpeername()
             logger.info(
-                "Got Connection from: {} with data: {}".format(addr, self.data)
+                "Got Connection from: {} with task: {}".format(
+                    addr, task)
             )
+            task_id = task.get('task_id')
+            ACK['task_id'] = task_id
             # ack to cilent
-            self.wfile.write('OK')
+            self.wfile.write(json_encode(ACK))
         logger.info("Broken connect with: {}".format(self.client_address[0]))
 
 
