@@ -8,15 +8,15 @@ def printf(msg):
     pass
 
 
-def json_encode(data):
+def json_encode(obj):
     try:
-        return json.dumps(data)
+        return json.dumps(obj)
     except ValueError:
-        return data
+        return obj
 
 
-def json_decode(data):
+def json_decode(obj):
     try:
-        return json.loads(data)
+        return json.loads(obj)
     except ValueError:
-        return data
+        return obj

@@ -11,6 +11,7 @@ from pasync._compat import (
     nativerstr
 )
 from pasync.q import LifoQueue, Queue
+from pasync.server import task_callback_hook
 from pasync.exceptions import (
     PAsyncError,
     TimeoutError,
@@ -25,7 +26,7 @@ from pasync.exceptions import (
     NoScriptError,
     ReadOnlyError
 )
-from pasync.utils import json_encode
+from pasync.utils import json_encode, json_decode
 
 SYM_STAR = b('*')
 SYM_DOLLAR = b('$')
@@ -344,19 +345,28 @@ class Connection(object):
             pass
         self._sock = None
 
-    def send(self, data, ack=True):
+    def send(self, data, ack=True, **kwargs):
         task = {
             'task_id': self.task_id,
-            'task_content': data
+            'task_content': data,
+            'task_params': kwargs
         }
         if self._sock is None:
             raise ConnectionError("Socket has not created!!")
-        self.task_id += 1
+
+        # register callback
+        task_callback_hook.register(self._set_result)
+
         try:
             self._sock.sendall(json_encode(task))
-            received = self._sock.recv(self.socket_read_size)
+            received = json_decode(self._sock.recv(self.socket_read_size))
+            # After received ack
+            self.task_id += 1
             if ack:
-                self._set_result(received)
+                if received.get('task_ack') is True:
+                    pass
+                else:
+                    raise
         except Exception:
             self.disconnect()
             raise

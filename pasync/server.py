@@ -13,6 +13,32 @@ ACK = {
 }
 
 
+class TaskHandlerHook(object):
+    def __init__(self, name):
+        self.name = name
+        self.callbacks = []
+
+    def register(self, callback):
+        self.callbacks.append(callback)
+
+    def send(self, *args, **kwargs):
+        for c in self.callbacks:
+            try:
+                c(*args, **kwargs)
+            except Exception:
+                raise
+
+    def clear(self):
+        self.callbacks = []
+
+task_callback_hook = TaskHandlerHook('task')
+
+
+def task_handler(task):
+    ret = 'Successful executed'
+    task_callback_hook.send(ret)
+
+
 class QHandler(StreamRequestHandler):
 
     def handle(self):
@@ -31,6 +57,7 @@ class QHandler(StreamRequestHandler):
             ACK['task_id'] = task_id
             # ack to cilent
             self.wfile.write(json_encode(ACK))
+            task_handler(task)
         logger.info("Broken connect with: {}".format(self.client_address[0]))
 
 
