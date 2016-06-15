@@ -77,6 +77,15 @@ if sys.version_info[0] < 3:
 
     def iteritems(x):
         return x.iteritems()
+
+    def b(x):
+        return x
+
+    def byte_to_chr(x):
+        return x
+
+    def nativerstr(x):
+        return x if isinstance(x, str) else x.decode('utf-8', 'replace')
 else:
 
     def recv(sock, *args, **kwargs):
@@ -87,3 +96,12 @@ else:
 
     def iteritems(x):
         return iter(x.items())
+
+    def b(x):
+        return x.encode('latin-1') if not isinstance(x, bytes) else x
+
+    def byte_to_chr(x):
+        return chr(x)
+
+    def nativerstr(x):
+        return x if isinstance(x, str) else x.encode('utf-8', 'replace')

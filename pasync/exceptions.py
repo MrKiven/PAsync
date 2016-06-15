@@ -23,3 +23,27 @@ class SocketRecvQueueFullError(PAsyncError):
 
 class SocketRecvQueueEmptyError(PAsyncError):
     pass
+
+
+class ResponseError(PAsyncError):
+    pass
+
+
+class InvalidResponse(PAsyncError):
+    pass
+
+
+class ExecAbortError(PAsyncError):
+    pass
+
+
+class BusyLoadingError(PAsyncError):
+    pass
+
+
+class NoScriptError(PAsyncError):
+    pass
+
+
+class ReadOnlyError(PAsyncError):
+    pass

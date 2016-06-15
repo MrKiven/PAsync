@@ -4,17 +4,26 @@ import socket
 import os
 import sys
 import threading
+from select import select
 
 from pasync._compat import (
-    Empty, Full, iteritems, BytesIO, recv
+    Empty, Full, iteritems, BytesIO, recv, b, byte_to_chr,
+    nativerstr
 )
 from pasync.q import LifoQueue, Queue
 from pasync.exceptions import (
+    PAsyncError,
     TimeoutError,
     ConnectionError,
     SocketQueueError,
     SocketRecvQueueFullError,
-    SocketRecvQueueEmptyError
+    SocketRecvQueueEmptyError,
+    InvalidResponse,
+    ResponseError,
+    ExecAbortError,
+    BusyLoadingError,
+    NoScriptError,
+    ReadOnlyError
 )
 
 SYM_STAR = b('*')
@@ -23,6 +32,41 @@ SYM_CRLF = b('\r\n')
 SYM_EMPTY = b('')
 
 SERVER_CLOSED_CONNECTION_ERROR = "Connection closed by server."
+
+
+class Token(object):
+    def __init__(self, value):
+        if isinstance(value, Token):
+            value = value.value
+        self.value = value
+
+    def __repr__(self):
+        return self.value
+
+    def __str__(self):
+        return self.value
+
+
+class BaseParser(object):
+    EXCEPTION_CLASSES = {
+        'ERR': {
+            'max number of clients reached': ConnectionError
+        },
+        'EXECABORT': ExecAbortError,
+        'LOADING': BusyLoadingError,
+        'NOSCRIPT': NoScriptError,
+        'READONLY': ReadOnlyError
+    }
+
+    def parser_error(self, response):
+        error_code = response.split(' ')[0]
+        if error_code in self.EXCEPTION_CLASSES:
+            response = response[len(error_code) + 1:]
+            excepttion_class = self.EXCEPTION_CLASSES[error_code]
+            if isinstance(excepttion_class, dict):
+                excepttion_class = excepttion_class.get(response, ResponseError)
+            return excepttion_class(response)
+        return ResponseError(response)
 
 
 class SocketBuffer(object):
@@ -111,6 +155,74 @@ class SocketBuffer(object):
         self._sock = None
 
 
+class PythonParser(BaseParser):
+    encoding = None
+
+    def __init__(self, socket_read_size):
+        self.socket_read_size = socket_read_size
+        self._sock = None
+        self._buffer = None
+
+    def __del__(self):
+        try:
+            self.on_disconnect()
+        except Exception:
+            pass
+
+    def on_connect(self, connection):
+        self._sock = connection._sock
+        self._buffer = SocketBuffer(self._sock, self.socket_read_size)
+        if connection.decode_responses:
+            self.encoding = connection.encoding
+
+    def on_disconnect(self):
+        if self._sock is not None:
+            self._sock.close()
+            self._sock = None
+        if self._buffer is not None:
+            self._buffer.close()
+            self._buffer = None
+        self.encoding = None
+
+    def can_read(self):
+        return self._buffer and bool(self._buffer.length)
+
+    def read_response(self):
+        response = self._buffer.readline()
+        if not response:
+            raise ConnectionError(SERVER_CLOSED_CONNECTION_ERROR)
+
+        byte, response = byte_to_chr(response[0], response[1:])
+
+        if byte not in ('-', '+', ':', '$', '*'):
+            raise InvalidResponse("Protocol Error: %s, %s" %
+                                  (str(byte), str(response)))
+
+        if byte == '-':
+            response = nativerstr(response)
+            error = self.parser_error(response)
+            if isinstance(error, ConnectionError):
+                raise error
+            return error
+        elif byte == '+':
+            pass
+        elif byte == ':':
+            response = long(response)
+        elif byte == '$':
+            length = int(response)
+            if length == -1:
+                return None
+            response = self._buffer.read(length)
+        elif byte == '*':
+            length = int(response)
+            if length == -1:
+                return None
+            response = [self.read_response() for _ in xrange(length)]
+        if isinstance(response, bytes) and self.encoding:
+            response = response.decode(self.encoding)
+        return response
+
+
 class Connection(object):
     """Manages TCP communication to and from QServer"""
     description_format = "Connection<host={}, port={}>"
@@ -118,8 +230,9 @@ class Connection(object):
     def __init__(self, host="localhost", port=1234, socket_timeout=None,
                  socket_connect_timeout=None, socket_keepalive=False,
                  socket_keepalive_options=None, retry_on_time=False,
-                 queue_class=Queue, queue_timeout=5, queue_max_size=100,
-                 socket_read_size=65536):
+                 encoding='utf-8', encoding_errors='strict', queue_class=Queue,
+                 queue_timeout=5, queue_max_size=100, decode_responses=False,
+                 parser_class=PythonParser, socket_read_size=65536):
         self.pid = os.getpid()
         self.host = host
         self.port = port
@@ -128,11 +241,15 @@ class Connection(object):
         self.socket_keepalive = socket_keepalive
         self.socket_keepalive_options = socket_keepalive_options or {}
         self.retry_on_time = retry_on_time
+        self.encoding = encoding
+        self.encoding_errors = encoding_errors
+        self.decode_responses = decode_responses
         self.queue_class = queue_class
         self.queue_max_size = queue_max_size
         self.queue_timeout = queue_timeout
         self.socket_read_size = socket_read_size
         self._sock = None
+        self._parser = parser_class(socket_read_size)
         self._connect_callback = []
 
         self._init_queue()
@@ -161,6 +278,11 @@ class Connection(object):
             raise ConnectionError(self._error_message(e))
 
         self._sock = sock
+        try:
+            self.on_connect()
+        except PAsyncError:
+            self.disconnect()
+            raise
 
         for callback in self._connect_callback:
             if callable(callback):
@@ -205,7 +327,11 @@ class Connection(object):
             return "Error %s connecting to %s:%s. %s." % \
                 (exception.args[0], self.host, self.port, exception.args[1])
 
+    def on_connect(self):
+        self._parser.on_connect(self)
+
     def disconnect(self):
+        self._parser.on_disconnect()
         if self._sock is None:
             return
         try:
@@ -226,6 +352,39 @@ class Connection(object):
         except Exception:
             self.disconnect()
             raise
+
+    def can_read(self, timeout=0):
+        sock = self._sock
+        if not sock:
+            self.connect()
+            sock = self._sock
+        return self._parser.can_read() or \
+            bool(select([sock], [], [], timeout)[0])
+
+    def read_response(self):
+        try:
+            response = self._parser.read_response()
+        except:
+            self.disconnect()
+            raise
+        if isinstance(response, ResponseError):
+            raise response
+        return response
+
+    def encode(self, value):
+        if isinstance(value, Token):
+            return b(value.value)
+        elif isinstance(value, bytes):
+            return value
+        elif isinstance(value, (int, long)):
+            return b(str(value))
+        elif isinstance(value, float):
+            return b(repr(value))
+        elif not isinstance(value, basestring):
+            value = unicode(value)
+        if isinstance(value, unicode):
+            value = value.encode(self.encoding, self.encoding_errors)
+        return value
 
     def _set_result(self, ret):
         if not hasattr(self, "queue"):
