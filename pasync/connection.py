@@ -253,6 +253,8 @@ class Connection(object):
         self._sock = None
         self._parser = parser_class(socket_read_size)
         self._connect_callback = []
+        # register callback
+        task_callback_hook.register(self._set_result)
 
         self.task_id = 0
 
@@ -353,9 +355,6 @@ class Connection(object):
         }
         if self._sock is None:
             raise ConnectionError("Socket has not created!!")
-
-        # register callback
-        task_callback_hook.register(self._set_result)
 
         try:
             self._sock.sendall(json_encode(task))
