@@ -23,6 +23,10 @@ class Q(Queue):
     def _get(self):
         return heapq.heappop(self.queue)[-1]
 
+    # need invoke
+    def set_maxsize(self, maxsize):
+        self.maxsize = maxsize
+
 
 class Item(object):
     """Data Struct
@@ -34,3 +38,5 @@ class Item(object):
 
     def __repr__(self):
         return "Item({!r}, {!r})".format(self.data, self.priority)
+
+q = Q()
