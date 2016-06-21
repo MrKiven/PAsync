@@ -11,7 +11,7 @@ from pasync._compat import (
     nativerstr
 )
 from pasync.q import LifoQueue, Queue
-from pasync.server import task_callback_hook
+from pasync.hooks import task_callback_hook
 from pasync.exceptions import (
     PAsyncError,
     TimeoutError,
