@@ -10,7 +10,7 @@ from pasync._compat import (
     Empty, Full, iteritems, BytesIO, recv, b, byte_to_chr,
     nativerstr
 )
-from pasync.q import LifoQueue, Queue
+from pasync._compat import LifoQueue, Queue
 from pasync.hooks import task_callback_hook
 from pasync.exceptions import (
     PAsyncError,
@@ -365,7 +365,7 @@ class Connection(object):
                 if received.get('task_ack') is True:
                     pass
                 else:
-                    raise
+                    print received.get('msg')
         except Exception:
             self.disconnect()
             raise

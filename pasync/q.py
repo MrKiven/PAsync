@@ -23,7 +23,6 @@ class Q(Queue):
     def _get(self):
         return heapq.heappop(self.queue)[-1]
 
-    # need invoke
     def set_maxsize(self, maxsize):
         self.maxsize = maxsize
 

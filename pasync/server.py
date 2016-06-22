@@ -1,20 +1,23 @@
 # -*- coding: utf-8 -*-
 
+import sys
 import logging
 from SocketServer import TCPServer, StreamRequestHandler, ThreadingMixIn
 
+from pasync._compat import Full
 from pasync.utils import json_decode, json_encode
 from pasync.hooks import task_callback_hook
+from pasync.q import q, Item
 
 logger = logging.getLogger(__name__)
-
-ACK = {
-    'task_id': None,
-    'task_ack': True
-}
+q.set_maxsize(10)
 
 
-def task_handler(task):
+def task_handler(task, timeout=3):
+    try:
+        q.put(Item(task), timeout=timeout)
+    except Full:
+        raise
     ret = 'Successful executed'
     task_callback_hook.send(ret)
 
@@ -23,6 +26,11 @@ class QHandler(StreamRequestHandler):
 
     def handle(self):
         while True:
+            ack = {
+                'task_id': None,
+                'task_ack': True,
+                'msg': None
+            }
             task = json_decode(self.request.recv(1024))
 
             if not task:
@@ -34,10 +42,14 @@ class QHandler(StreamRequestHandler):
                     addr, task)
             )
             task_id = task.get('task_id')
-            ACK['task_id'] = task_id
+            ack['task_id'] = task_id
+            try:
+                task_handler(task)
+            except Full:
+                ack['task_ack'] = False
+                ack['msg'] = 'Task Queue Is Full!'
             # ack to cilent
-            self.wfile.write(json_encode(ACK))
-            task_handler(task)
+            self.wfile.write(json_encode(ack))
         logger.info("Broken connect with: {}".format(self.client_address[0]))
 
 
